@@ -1,19 +1,21 @@
-﻿using G31DDCAPIWrapperSpace;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Runtime.InteropServices;
+
+using G31DDCAPIWrapperSpace;
 
 namespace WindowsFormsApplication3
 {
-    class Wrapper
+    public class Wrapper
     {
         #region Members
 
         public G31DDCAPIWrapper apiWrapper = new G31DDCAPIWrapper();
         public G31DDCAPIWrapperDeviceInfo deviceInfo;
-        //public String deviceSerialNumber;
-        
+        public String deviceSerialNumber;
+
         public UInt32 apiStatus;
 
         public static String APIWRAPPERLIBRARY = G31DDCAPIWrapper.APILIBRARY;

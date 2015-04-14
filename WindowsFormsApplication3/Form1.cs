@@ -19,13 +19,10 @@ namespace WindowsFormsApplication3
         #region Members
 
         private Wrapper wrapper = new Wrapper();
-        private DecimalConverter DecConv = new DecimalConverter();
-        public bool initStatus      =   false;
-        private int minFrequency    =   0;
-        private int maxFrequency    =   0;
+        private WaveOutHandler waveOutHandler = new WaveOutHandler();
 
         private delegate void WrapperDD2PreprocessedStreamCallbackHandler(object sender, DDC2PreprocessedStreamEventArgs eventArgs);
-
+        private delegate void WrapperAudioStreamCallbackHandler(object sender, AudioStreamEventArgs eventArgs);
         #endregion
 
         #region Constructors
@@ -46,10 +43,10 @@ namespace WindowsFormsApplication3
                 G31DDCAPIWrapperDeviceInfo aDeviceInfo = wrapper.deviceInfo;
                 SNTextBox.Text              =   aDeviceInfo.serialNumber;
                 InterfaceTextBox.Text       =   aDeviceInfo.interfaceType == G31DDCAPIWrapper.DEVICE_INTERFACE_USB ? "USB" : "PCI";
-                wrapper.SetFrequency(UInt32.MinValue);
-                minFrequency                =   (int)wrapper.GetFrequency();
-                wrapper.SetFrequency(UInt32.MaxValue);
-                maxFrequency                =   (int)wrapper.GetFrequency();
+                wrapper.SetFrequency(0);
+                int minFrequency                =   (int)wrapper.GetFrequency();
+                wrapper.SetFrequency(123456789);
+                int maxFrequency                =   (int)wrapper.GetFrequency();
                 frequencyTrackBar.Minimum   =   minFrequency;
                 frequencyTrackBar.Maximum   =   maxFrequency;
                 frequencyUDBox.Minimum      =   minFrequency;
@@ -74,19 +71,19 @@ namespace WindowsFormsApplication3
 
         private void HandleDeviceConnection()
         {
-            initStatus = wrapper.IsDeviceConnected();
 
-            errorDevicePanel.Visible = !initStatus;
+            
+            if (wrapper.IsDeviceConnected())
+            {             
+                button1.Enabled =   errorDevicePanel.Visible    = false;
 
-            deviceInfoPanel.Visible = propertiesDevicePanel.Visible = propertiesDevicePanel.Enabled = initStatus;
-            if (initStatus)
-            {
-                timerConnection.Start();
+                deviceInfoPanel.Visible = propertiesDevicePanel.Visible = propertiesDevicePanel.Enabled = true;
 
                 statusBar.ForeColor = Color.Green; 
 
                 statusBar.Text = "Connected successful";
 
+                timerConnection.Start();
             }
             else
             {
@@ -94,7 +91,9 @@ namespace WindowsFormsApplication3
 
                 wrapper.CloseDevice();
 
-                minFrequency = 0;
+                button1.Enabled = errorDevicePanel.Visible = true;
+
+                deviceInfoPanel.Visible = propertiesDevicePanel.Visible = propertiesDevicePanel.Enabled = false;
 
                 statusBar.ForeColor = Color.Red;
 
@@ -110,6 +109,8 @@ namespace WindowsFormsApplication3
         {
             wrapper.deviceDDC2PreprocessedStreamReceived += new Wrapper.DeviceDDC2PreprocessedStreamReceivedHandler(OnWrapperDDC2PreprocessedStreamReceived);
 
+            wrapper.deviceAudioStreamReceived += new Wrapper.DeviceAudioStreamReceivedHandler(OnWrapperAudioStreamReceived);
+
             InitializeDeviceConnection();
         }
 
@@ -117,7 +118,12 @@ namespace WindowsFormsApplication3
         {
             timerConnection.Stop();
 
-            if (initStatus)
+            if (waveOutHandler.isOpened)
+            {
+                waveOutHandler.Close();
+            }
+
+            if (wrapper.IsDeviceConnected())
             {
                 wrapper.CloseDevice();
             }
@@ -135,10 +141,11 @@ namespace WindowsFormsApplication3
 
         private void frequencyTrackBar_ValueChanged(object sender, EventArgs e)
         {
-            if (initStatus)
+            if (wrapper.IsDeviceConnected())
             {
                 wrapper.SetFrequency((UInt32)frequencyTrackBar.Value);
-                frequencyUDBox.Value = wrapper.GetFrequency();
+                UInt32 aFrequency = wrapper.GetFrequency();
+                frequencyUDBox.Value = aFrequency;
             }
         }
 
@@ -159,9 +166,10 @@ namespace WindowsFormsApplication3
 
                 double currentSignalLeveldBm    =   (10.0 * Math.Log10(Math.Pow(anEventArgs.sLevelRms, 2) * (1000.0 / 50.0)));
 
-                signalLevelTextBox.Text         =   currentSignalLeveldBm.ToString() + " dBm";
+                signalLevelTextBox.Text         =   currentSignalLeveldBm.ToString();
 
-                signalLevelProgressBar.Value    =   (int)((currentSignalLeveldBm + 70) * 10);
+                
+                //signalLevelProgressBar.Value    =   (int)((currentSignalLeveldBm + 220) * 10);
             }
             else
             {
@@ -171,7 +179,42 @@ namespace WindowsFormsApplication3
                 BeginInvoke(aWrapperHandler, new object[] { aSender, eventArgs });
             }
         }
+        private void OnWrapperAudioStreamReceived(object theSender, EventArgs theEventArgs)
+        {
+            if (!waveOutHandler.isOpened)
+            {
+                return;
+            }
 
+            // If method was called from the same thread, handle received data
+            if (!InvokeRequired)
+            {
+
+                AudioStreamEventArgs anEventArgs = (AudioStreamEventArgs)theEventArgs;
+
+                // Display audio level
+                int aValue = 0;
+                for (int anIx = 0; anIx < anEventArgs.numberOfSamples; anIx++)
+                {
+                    aValue = (int)Math.Max(aValue, 100 * Math.Abs(anEventArgs.buffer[anIx]));
+                }
+                //progressBarAudioLevel.Value = aValue < progressBarAudioLevel.Maximum ? aValue : progressBarAudioLevel.Maximum;
+
+                // Write to waveOut
+                waveOutHandler.Write(anEventArgs.buffer, anEventArgs.numberOfSamples);
+
+
+            }
+            // Else, if this method was called from API thread, call it again from the same thread 
+            else
+            {
+                // Prepare calling the method from the same thread
+                WrapperAudioStreamCallbackHandler aWrapperHandler = new WrapperAudioStreamCallbackHandler(OnWrapperAudioStreamReceived);
+                object aSender = Thread.CurrentThread;
+
+                BeginInvoke(aWrapperHandler, new object[] { aSender, theEventArgs });
+            }
+        }
         #endregion
 
     }
